@@ -55,3 +55,8 @@ export function createApp() {
   app.use(errorHandler);
   return app;
 }
+
+// Vercel's Node runtime loads this file as a function entry point and expects
+// the default export to be the request handler/server.
+const app = createApp();
+export default app;
