@@ -25,6 +25,11 @@ export function createApp() {
     })
   );
 
+  app.get("/", (req, res) => {
+  res.send("🚀 server is running...");
+  }
+)
+
   app.get("/api/health", (req, res) => {
     res.json({
       ok: true,
