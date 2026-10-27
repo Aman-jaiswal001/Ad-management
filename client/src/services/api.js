@@ -1,7 +1,9 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: "/api",
+  // Set VITE_API_URL to the deployed API origin when client and server are
+  // hosted on separate Vercel projects. Local development keeps using /api.
+  baseURL: (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, ""),
 });
 
 api.interceptors.request.use((config) => {
