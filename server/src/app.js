@@ -10,6 +10,7 @@ import knowledgeRoutes from "./routes/knowledge.js";
 import draftRoutes from "./routes/drafts.js";
 import reviewRoutes, { findingRouter } from "./routes/reviews.js";
 import { analyticsRouter, auditRouter } from "./routes/analytics.js";
+import { connectDb } from "./config/db.js";
 
 export function createApp() {
   const app = express();
@@ -59,4 +60,14 @@ export function createApp() {
 // Vercel's Node runtime loads this file as a function entry point and expects
 // the default export to be the request handler/server.
 const app = createApp();
-export default app;
+// Vercel invokes this export directly, so establish MongoDB before any route
+// that reads or writes models (including login) runs.
+export default async function handler(req, res) {
+  try {
+    await connectDb();
+    return app(req, res);
+  } catch (err) {
+    console.error("Failed to connect to MongoDB:", err.message);
+    return res.status(503).json({ error: "Database unavailable. Please try again shortly." });
+  }
+}
