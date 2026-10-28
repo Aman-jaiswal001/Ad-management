@@ -12,6 +12,7 @@ React (Vite)  →  Express REST API  →  MongoDB (Mongoose)
                       ├── JWT auth + RBAC + workspace isolation
                       ├── Deterministic rule engine
                       ├── Document extract / chunk
+                      ├── Cloudinary authenticated file storage
                       ├── Google Generative AI embeddings
                       ├── Qdrant vector search (workspace + approved + active version)
                       └── LLM providers (Groq primary, Gemini fallback) via LangChain
@@ -112,12 +113,18 @@ See `server/.env.example`.
 | `QDRANT_URL`                                       | for RAG                   | e.g. `http://localhost:6333`                    |
 | `QDRANT_API_KEY`                                   | if Qdrant Cloud           | API key                                         |
 | `QDRANT_COLLECTION`                                | no                        | Default `inkloom_chunks`                        |
-| `UPLOAD_DIRECTORY`                                 | no                        | Default `uploads`                               |
 | `MAX_FILE_SIZE`                                    | no                        | Bytes, default 10MB                             |
+| `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | **yes for file uploads** | Server-only Cloudinary credentials |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` / `RETRIEVAL_COUNT` | no                        | RAG tuning                                      |
 | `LLM_TIMEOUT_MS` / `LLM_MAX_RETRIES`               | no                        | Provider timeouts / retries                     |
 
 Never commit real secrets. `.env` is gitignored.
+
+### Cloudinary and production uploads
+
+Create a Cloudinary account and set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in `server/.env`. Add the same three variables to the backend hosting provider's environment settings (for Vercel, the server project settings); never add them to `client/.env` or any `VITE_*` variable. Configure `CLIENT_URL` to the exact deployed frontend origin. Multiple comma-separated origins are supported for staged deployments.
+
+Uploads use authenticated Cloudinary raw assets and the server's in-memory Multer buffer. The default maximum is 10 MiB (`MAX_FILE_SIZE`); keep it within the chosen host's request/body limits. Vercel's server function has a 300-second maximum duration configured, but platform request size limits still apply. Larger upload requirements need signed direct-to-Cloudinary uploads with a server-authorized signature endpoint. MongoDB stores the Cloudinary public ID and metadata; PDF/text extraction and RAG indexing continue using the validated request buffer. Existing local-storage records cannot be moved automatically and must be re-uploaded if their original local files are no longer present.
 
 ## Database setup
 

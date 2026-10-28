@@ -1,12 +1,10 @@
-import fs from "fs/promises";
 import { createRequire } from "module";
 import { normalizeText } from "../../utils/text.js";
 
 const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse");
 
-export async function extractFromFile(fullPath, mimeType, originalName) {
-  const buffer = await fs.readFile(fullPath);
+export async function extractFromBuffer(buffer, mimeType, originalName) {
   const lower = (originalName || "").toLowerCase();
   if (mimeType === "application/pdf" || lower.endsWith(".pdf")) {
     const parsed = await pdfParse(buffer);

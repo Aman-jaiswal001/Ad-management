@@ -2,7 +2,7 @@ import { Router } from "express";
 import { ROLES } from "../config/constants.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRoles, requireWorkspace } from "../middleware/workspace.js";
-import { assetUpload, handleMulterError, sourceUpload } from "../middleware/upload.js";
+import { assetUpload, handleMulterError, sourceUpload, validateFileSignature } from "../middleware/upload.js";
 import {
   createClaim,
   createRule,
@@ -34,7 +34,7 @@ const router = Router();
 router.use(requireAuth, requireWorkspace);
 
 router.get("/sources", listSources);
-router.post("/sources/upload", admin, sourceUpload.single("file"), handleMulterError, uploadSource);
+router.post("/sources/upload", admin, sourceUpload.single("file"), handleMulterError, validateFileSignature, uploadSource);
 router.get("/sources/:id", getSource);
 router.patch("/sources/:id", admin, updateSource);
 router.post("/sources/:id/reindex", admin, reindexSource);
@@ -57,7 +57,7 @@ router.put("/rules/:id", admin, updateRule);
 router.delete("/rules/:id", admin, deleteRule);
 
 router.get("/assets", listAssets);
-router.post("/assets", admin, assetUpload.single("file"), handleMulterError, uploadAsset);
+router.post("/assets", admin, assetUpload.single("file"), handleMulterError, validateFileSignature, uploadAsset);
 router.delete("/assets/:id", admin, deleteAsset);
 router.get("/assets/:id/download", downloadAsset);
 

@@ -15,7 +15,11 @@ import { connectDb } from "./config/db.js";
 export function createApp() {
   const app = express();
   app.set("trust proxy", 1);
-  app.use(cors());
+  const allowedOrigins = env.clientUrl.split(",").map((origin) => origin.trim()).filter(Boolean);
+  app.use(cors({ origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new ApiError(403, "Origin is not allowed by CORS."));
+  } }));
   app.use(express.json({ limit: "2mb" }));
   app.use(
     rateLimit({

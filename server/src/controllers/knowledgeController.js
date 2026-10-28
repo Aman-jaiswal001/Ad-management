@@ -1,4 +1,3 @@
-import path from "path";
 import { BrandAsset, BrandRule, BrandSource, ApprovedClaim, TerminologyEntry } from "../models/index.js";
 import { APPROVAL_STATUS, AUDIT_ACTIONS, ROLES, SOURCE_STATUS } from "../config/constants.js";
 import { parseBody, claimSchema, ruleSchema, terminologySchema } from "../validators/schemas.js";
@@ -6,8 +5,8 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { paginated, parsePagination } from "../utils/pagination.js";
 import { writeAudit } from "../services/audit.js";
-import { extractFromFile } from "../services/documents/extract.js";
-import { removeStored, resolveStored, saveBuffer } from "../services/documents/storage.js";
+import { extractFromBuffer } from "../services/documents/extract.js";
+import { getCloudinaryUrl, removeLegacyStored, removeStored, saveBuffer } from "../services/documents/storage.js";
 import { deleteSourcePoints } from "../services/rag/qdrant.js";
 import { indexBrandSource } from "../services/rag/indexSource.js";
 import { Workspace } from "../models/Workspace.js";
@@ -25,27 +24,34 @@ export const listSources = asyncHandler(async (req, res) => {
 export const uploadSource = asyncHandler(async (req, res) => {
   if (!req.file) throw new ApiError(400, "A PDF or text file is required.");
   const name = req.body.name || req.file.originalname;
-  const relative = await saveBuffer({
+  const cloud = await saveBuffer({
     workspaceId: req.workspaceId,
     folder: "sources",
     originalName: req.file.originalname,
+    mimeType: req.file.mimetype,
     buffer: req.file.buffer,
   });
-  const source = await BrandSource.create({
+  let source;
+  try {
+    source = await BrandSource.create({
     workspace: req.workspaceId,
     name,
     originalFilename: req.file.originalname,
     mimeType: req.file.mimetype,
-    storagePath: relative,
+    ...cloudFields(cloud),
     extractionStatus: SOURCE_STATUS.EXTRACTING,
     uploadedBy: req.user._id,
     approvalStatus: req.body.approvalStatus || APPROVAL_STATUS.APPROVED,
     isActiveVersion: true,
     version: Number(req.body.version || 1),
-  });
+    });
+  } catch (err) {
+    await removeStored(cloud.publicId, cloud.resourceType, cloud.deliveryType).catch(() => {});
+    throw err;
+  }
   try {
-    const extracted = await extractFromFile(
-      resolveStored(relative),
+    const extracted = await extractFromBuffer(
+      req.file.buffer,
       req.file.mimetype,
       req.file.originalname
     );
@@ -53,8 +59,10 @@ export const uploadSource = asyncHandler(async (req, res) => {
     source.extractionStatus = SOURCE_STATUS.EXTRACTED;
     await source.save();
   } catch (err) {
+    await removeStored(source.cloudinaryPublicId, source.cloudinaryResourceType, source.cloudinaryDeliveryType).catch(() => {});
+    await source.deleteOne().catch(() => {});
     source.extractionStatus = SOURCE_STATUS.ERROR;
-    source.indexingError = err.message;
+    source.indexingError = err.status && err.status < 500 ? err.message : "Text extraction failed. Verify the file is a valid PDF or UTF-8 text document.";
     await source.save();
     throw err;
   }
@@ -147,8 +155,9 @@ export const reindexSource = asyncHandler(async (req, res) => {
 export const deleteSource = asyncHandler(async (req, res) => {
   const source = await BrandSource.findOne({ _id: req.params.id, workspace: req.workspaceId });
   if (!source) throw new ApiError(404, "Source not found.");
+  if (source.cloudinaryPublicId) await removeStored(source.cloudinaryPublicId, source.cloudinaryResourceType, source.cloudinaryDeliveryType);
+  else await removeLegacyStored(source.storagePath);
   await deleteSourcePoints(req.workspaceId, source._id).catch(() => {});
-  await removeStored(source.storagePath);
   await source.deleteOne();
   await writeAudit({
     workspace: req.workspaceId,
@@ -163,9 +172,9 @@ export const deleteSource = asyncHandler(async (req, res) => {
 
 export const downloadSource = asyncHandler(async (req, res) => {
   const source = await BrandSource.findOne({ _id: req.params.id, workspace: req.workspaceId });
-  if (!source || !source.storagePath) throw new ApiError(404, "File not found.");
-  const full = resolveStored(source.storagePath);
-  res.download(full, source.originalFilename || path.basename(full));
+  if (!source || (!source.cloudinaryPublicId && !source.storagePath)) throw new ApiError(404, "File not found.");
+  if (!source.cloudinaryPublicId) throw new ApiError(410, "This legacy file is no longer available from local storage.");
+  res.redirect(302, getCloudinaryUrl(source.cloudinaryPublicId, source.cloudinaryResourceType, source.cloudinaryDeliveryType, source.format));
 });
 
 export const listTerminology = asyncHandler(async (req, res) => {
@@ -293,38 +302,58 @@ export const listAssets = asyncHandler(async (req, res) => {
 
 export const uploadAsset = asyncHandler(async (req, res) => {
   if (!req.file) throw new ApiError(400, "An asset file is required.");
-  const relative = await saveBuffer({
+  const cloud = await saveBuffer({
     workspaceId: req.workspaceId,
     folder: "assets",
     originalName: req.file.originalname,
+    mimeType: req.file.mimetype,
     buffer: req.file.buffer,
   });
-  const item = await BrandAsset.create({
+  let item;
+  try {
+    item = await BrandAsset.create({
     workspace: req.workspaceId,
     name: req.body.name || req.file.originalname,
     assetType: req.body.assetType || "file",
-    storagePath: relative,
+    ...cloudFields(cloud),
     originalFilename: req.file.originalname,
     mimeType: req.file.mimetype,
     version: Number(req.body.version || 1),
     approvalStatus: req.body.approvalStatus || APPROVAL_STATUS.APPROVED,
     uploadedBy: req.user._id,
-  });
+    });
+  } catch (err) {
+    await removeStored(cloud.publicId, cloud.resourceType, cloud.deliveryType).catch(() => {});
+    throw err;
+  }
   res.status(201).json({ item });
 });
 
 export const deleteAsset = asyncHandler(async (req, res) => {
   const item = await BrandAsset.findOne({ _id: req.params.id, workspace: req.workspaceId });
   if (!item) throw new ApiError(404, "Asset not found.");
-  await removeStored(item.storagePath);
+  if (item.cloudinaryPublicId) await removeStored(item.cloudinaryPublicId, item.cloudinaryResourceType, item.cloudinaryDeliveryType);
+  else await removeLegacyStored(item.storagePath);
   await item.deleteOne();
   res.json({ ok: true });
 });
 
 export const downloadAsset = asyncHandler(async (req, res) => {
   const item = await BrandAsset.findOne({ _id: req.params.id, workspace: req.workspaceId });
-  if (!item || !item.storagePath) throw new ApiError(404, "File not found.");
-  res.download(resolveStored(item.storagePath), item.originalFilename);
+  if (!item || (!item.cloudinaryPublicId && !item.storagePath)) throw new ApiError(404, "File not found.");
+  if (!item.cloudinaryPublicId) throw new ApiError(410, "This legacy file is no longer available from local storage.");
+  res.redirect(302, getCloudinaryUrl(item.cloudinaryPublicId, item.cloudinaryResourceType, item.cloudinaryDeliveryType, item.format));
 });
+
+function cloudFields(cloud) {
+  return {
+    cloudinaryPublicId: cloud.publicId,
+    cloudinaryResourceType: cloud.resourceType,
+    cloudinaryDeliveryType: cloud.deliveryType,
+    secureUrl: cloud.secureUrl,
+    fileSize: cloud.bytes,
+    format: cloud.format,
+  };
+}
 
 export const adminOnly = [ROLES.ADMIN];

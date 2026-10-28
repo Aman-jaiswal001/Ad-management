@@ -12,8 +12,8 @@ import { ApiError } from "../utils/ApiError.js";
 import { paginated, parsePagination } from "../utils/pagination.js";
 import { writeAudit } from "../services/audit.js";
 import { normalizeText } from "../utils/text.js";
-import { extractFromFile } from "../services/documents/extract.js";
-import { resolveStored, saveBuffer } from "../services/documents/storage.js";
+import { extractFromBuffer } from "../services/documents/extract.js";
+import { removeStored, saveBuffer } from "../services/documents/storage.js";
 
 export const listDrafts = asyncHandler(async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
@@ -53,40 +53,47 @@ export const createDraft = asyncHandler(async (req, res) => {
     content: req.body.content || "",
   });
   let content = normalizeText(data.content);
-  let sourceFilePath = "";
+  let sourceStorage = {};
   let sourceFilename = "";
   let extractionStatus = "";
   if (req.file) {
-    sourceFilePath = await saveBuffer({
+    sourceFilename = req.file.originalname;
+    extractionStatus = "extracting";
+    const extracted = await extractFromBuffer(req.file.buffer, req.file.mimetype, req.file.originalname);
+    content = extracted.text;
+    extractionStatus = "extracted";
+    sourceStorage = await saveBuffer({
       workspaceId: req.workspaceId,
       folder: "drafts",
       originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
       buffer: req.file.buffer,
     });
-    sourceFilename = req.file.originalname;
-    extractionStatus = "extracting";
-    const extracted = await extractFromFile(
-      resolveStored(sourceFilePath),
-      req.file.mimetype,
-      req.file.originalname
-    );
-    content = extracted.text;
-    extractionStatus = "extracted";
   }
   if (!content) throw new ApiError(400, "Paste content or upload a PDF/text file.");
-  const draft = await Draft.create({
+  let draft;
+  try {
+  draft = await Draft.create({
     workspace: req.workspaceId,
     creator: req.user._id,
     title: data.title,
     contentType: data.contentType,
     originalContent: content,
     currentContent: content,
-    sourceFilePath,
+    sourceFilePath: "",
+    sourceCloudinaryPublicId: sourceStorage.publicId || "",
+    sourceCloudinaryResourceType: sourceStorage.resourceType || "raw",
+    sourceCloudinaryDeliveryType: sourceStorage.deliveryType || "authenticated",
+    sourceFileUrl: sourceStorage.secureUrl || "",
     sourceFilename,
     extractionStatus,
     status: DRAFT_STATUS.DRAFT,
     currentRevision: 1,
   });
+  } catch (err) {
+    if (sourceStorage.publicId) await removeStored(sourceStorage.publicId, sourceStorage.resourceType, sourceStorage.deliveryType).catch(() => {});
+    throw err;
+  }
   await DraftRevision.create({
     workspace: req.workspaceId,
     draft: draft._id,

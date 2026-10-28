@@ -2,7 +2,7 @@ import { Router } from "express";
 import { ROLES } from "../config/constants.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRoles, requireWorkspace } from "../middleware/workspace.js";
-import { draftUpload, handleMulterError } from "../middleware/upload.js";
+import { draftUpload, handleMulterError, validateFileSignature } from "../middleware/upload.js";
 import {
   createDraft,
   getDraft,
@@ -25,7 +25,7 @@ const router = Router();
 router.use(requireAuth, requireWorkspace);
 
 router.get("/", listDrafts);
-router.post("/", requireRoles(ROLES.ADMIN, ROLES.CREATOR), draftUpload.single("file"), handleMulterError, createDraft);
+router.post("/", requireRoles(ROLES.ADMIN, ROLES.CREATOR), draftUpload.single("file"), handleMulterError, validateFileSignature, createDraft);
 router.get("/:id", getDraft);
 router.put("/:id", requireRoles(ROLES.ADMIN, ROLES.CREATOR), updateDraft);
 router.get("/:id/revisions", listRevisions);

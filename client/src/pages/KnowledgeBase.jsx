@@ -10,6 +10,7 @@ export default function KnowledgeBase() {
   const [loading, setLoading] = useState(true);
   const [file, setFile] = useState(null);
   const [name, setName] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   async function load() {
     const { data } = await api.get("/sources");
@@ -21,10 +22,12 @@ export default function KnowledgeBase() {
   }, []);
 
   async function upload(e) {
-    e.preventDefault();
+      e.preventDefault();
+    if (!file || uploading) return;
     const form = new FormData();
     form.append("file", file);
     form.append("name", name || file.name);
+    setUploading(true);
     try {
       const res = await api.post("/sources/upload", form);
       if (res.data.warning) showToast(res.data.warning, "error");
@@ -34,6 +37,8 @@ export default function KnowledgeBase() {
       await load();
     } catch (err) {
       showToast(err.displayMessage, "error");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -52,9 +57,9 @@ export default function KnowledgeBase() {
             <label className="label">Source name</label>
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-          <input required type="file" accept=".pdf,.txt,.md" onChange={(e) => setFile(e.target.files[0])} />
-          <button className="btn-primary" disabled={!file}>
-            Upload & index
+          <input required type="file" accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown" onChange={(e) => setFile(e.target.files[0])} />
+          <button className="btn-primary" disabled={!file || uploading}>
+            {uploading ? "Uploading & indexing…" : "Upload & index"}
           </button>
         </form>
       )}
@@ -124,7 +129,8 @@ export default function KnowledgeBase() {
                         </button>
                       </>
                     )}
-                    {s.indexingError && <p className="text-xs text-red-600">{s.indexingError}</p>}
+                  <a className="text-xs text-blue-700 underline" href={`${import.meta.env.VITE_API_URL || "/api"}/sources/${s._id}/download`} target="_blank" rel="noreferrer">View / download</a>
+                  {s.indexingError && <p className="text-xs text-red-600">{s.indexingError}</p>}
                   </td>
                 </tr>
               ))}

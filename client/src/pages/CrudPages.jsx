@@ -183,6 +183,7 @@ export function AssetsPage() {
   const [file, setFile] = useState(null);
   const [name, setName] = useState("");
   const [assetType, setAssetType] = useState("logo");
+  const [uploading, setUploading] = useState(false);
 
   async function load() {
     const { data } = await api.get("/assets");
@@ -204,19 +205,24 @@ export function AssetsPage() {
             form.append("file", file);
             form.append("name", name);
             form.append("assetType", assetType);
+            setUploading(true);
             try {
               await api.post("/assets", form);
               showToast("Asset uploaded", "success");
+              setFile(null);
+              setName("");
               load();
             } catch (err) {
               showToast(err.displayMessage, "error");
+            } finally {
+              setUploading(false);
             }
           }}
         >
           <input className="input w-48" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
           <input className="input w-40" value={assetType} onChange={(e) => setAssetType(e.target.value)} />
           <input type="file" required onChange={(e) => setFile(e.target.files[0])} />
-          <button className="btn-primary">Upload</button>
+          <button className="btn-primary" disabled={!file || uploading}>{uploading ? "Uploading…" : "Upload"}</button>
         </form>
       )}
       {!items.length && <EmptyState title="No assets" body="Upload approved logos or files. Visual review is not performed." />}
@@ -227,6 +233,7 @@ export function AssetsPage() {
               {a.name} · {a.assetType} · v{a.version}
             </p>
             <p className="text-xs text-slate-500">{a.approvalStatus}</p>
+          <a className="text-xs text-blue-700 underline" href={`${import.meta.env.VITE_API_URL || "/api"}/assets/${a._id}/download`} target="_blank" rel="noreferrer">View / download</a>
           </div>
           {role === "ADMIN" && (
             <button className="btn-danger" onClick={() => api.delete(`/assets/${a._id}`).then(load)}>
